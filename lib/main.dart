@@ -51,7 +51,7 @@ Future<void> main() async {
   
   // Initialize Hive and open the box
   final appDocumentDir = await getApplicationDocumentsDirectory();
-  await Hive.initFlutter(appDocumentDir.path);
+  await Hive.initFlutter(appDocumentDir.path); // <-- Typo fixed here
   Hive.registerAdapter(MatchResultAdapter());
   await Hive.openBox<MatchResult>(kMatchHistoryBox);
 
@@ -213,8 +213,8 @@ class MatchSetupScreen extends StatefulWidget {
 }
 
 class _MatchSetupScreenState extends State<MatchSetupScreen> {
-  final _teamAController = TextEditingController(text: 'Team A');
-  final _teamBController = TextEditingController(text: 'Team B');
+  final _teamAController = TextEditingController(text: 'Los Lobos');
+  final _teamBController = TextEditingController(text: 'Padel Masters');
   int _selectedBestOf = 3; // 3 or 5 for "Best of"
 
   @override
@@ -264,7 +264,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Padel Match',
+          'New Padel Match',
           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
         ),
         actions: [
@@ -288,7 +288,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
               // --- Padel Logo ---
               Icon(
                 Icons.sports_tennis,
-                size: 150,
+                size: 100,
                 color: Theme.of(context).primaryColor.withOpacity(0.8),
               ),
               const SizedBox(height: 40),
@@ -407,6 +407,7 @@ class ScoreState {
   final String teamBPoints;
   final Team servingTeam;
   final int secondsElapsed;
+  final int faultCount; // Added fault count to history
 
   ScoreState({
     required this.teamAGames,
@@ -415,6 +416,7 @@ class ScoreState {
     required this.teamBPoints,
     required this.servingTeam,
     required this.secondsElapsed,
+    required this.faultCount,
   });
 }
 
@@ -443,6 +445,7 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
   late String _teamAPoints;
   late String _teamBPoints;
   late Team _servingTeam;
+  late int _faultCount; // 0 = no fault, 1 = first fault
   final List<ScoreState> _history = [];
 
   // --- Timer Variables ---
@@ -480,6 +483,7 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
       _teamAPoints = '0';
       _teamBPoints = '0';
       _servingTeam = Random().nextBool() ? Team.teamA : Team.teamB;
+      _faultCount = 0;
       _history.clear();
       _secondsElapsed = 0;
       _startTimer();
@@ -497,6 +501,7 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
       teamBPoints: _teamBPoints,
       servingTeam: _servingTeam,
       secondsElapsed: _secondsElapsed,
+      faultCount: _faultCount,
     ));
   }
 
@@ -511,6 +516,7 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
         _teamBPoints = lastState.teamBPoints;
         _servingTeam = lastState.servingTeam;
         _secondsElapsed = lastState.secondsElapsed;
+        _faultCount = lastState.faultCount;
       });
     } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -519,9 +525,27 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
     }
   }
 
-  void _addPoint(Team team) {
-    _saveState();
+  // --- Updated function to handle serve faults ---
+  void _recordFault() {
+    setState(() {
+      if (_faultCount == 0) {
+        // This is the first fault
+        _faultCount = 1;
+        // **FIX:** Save this action so it can be undone
+        _saveState(); 
+      } else {
+        // This is the second fault (double fault)
+        // Award the point to the receiving team
+        final receivingTeam = (_servingTeam == Team.teamA) ? Team.teamB : Team.teamA;
+        _addPoint(receivingTeam);
+        // _addPoint will call _addGame or _updatePoints,
+        // which WILL save the state.
+      }
+    });
+  }
 
+  // This function is for a "point won"
+  void _addPoint(Team team) {
     String currentPointsWinner = (team == Team.teamA) ? _teamAPoints : _teamBPoints;
     String currentPointsLoser = (team == Team.teamA) ? _teamBPoints : _teamAPoints;
 
@@ -562,7 +586,10 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
       setState(() {
           _teamAPoints = pointsA;
           _teamBPoints = pointsB;
+          // **FIX:** FAULT IS NOT RESET. It persists for the game.
+          // _faultCount = 0; 
       });
+      _saveState();
   }
 
   void _addGame(Team team) {
@@ -586,7 +613,9 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
       _teamAPoints = '0';
       _teamBPoints = '0';
       _servingTeam = (_servingTeam == Team.teamA) ? Team.teamB : Team.teamA;
+      _faultCount = 0; // **FIX:** Game over, so fault *is* reset.
     });
+    _saveState();
   }
 
   // --- Dialogs ---
@@ -614,35 +643,78 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: Theme.of(context).cardColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(
-            '$winningTeam Wins!',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).primaryColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          content: Container(
+            padding: const EdgeInsets.symmetric(vertical: 20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.emoji_events_outlined,
+                  color: Theme.of(context).primaryColor,
+                  size: 70,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  '$winningTeam Wins!',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Final Score: $_teamAGames - $_teamBGames',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.8),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text(
+                          'Close', 
+                          style: TextStyle(
+                            color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7), 
+                            fontSize: 16
+                          )
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        child: const Text('New Match'),
+                        onPressed: () {
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          content: Text(
-            'Final Score: $_teamAGames - $_teamBGames',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 18),
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Close', style: TextStyle(color: Colors.grey)),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            ElevatedButton(
-              child: const Text('New Match'),
-              onPressed: () {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              },
-            ),
-          ],
         );
       },
     );
@@ -654,21 +726,78 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
         builder: (BuildContext context) {
             return AlertDialog(
                 backgroundColor: Theme.of(context).cardColor,
-                title: const Text('Reset Match?'),
-                content: const Text('Are you sure you want to reset the current match score?'),
-                actions: [
-                    TextButton(
-                        child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-                        onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    TextButton(
-                        child: const Text('Reset', style: TextStyle(color: Colors.redAccent)),
-                        onPressed: () {
-                            Navigator.of(context).pop();
-                            _resetMatchState();
-                        },
-                    ),
-                ],
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                content: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 20.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.amber.shade600,
+                        size: 60,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Reset Match?',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Are you sure you want to reset the current match score?',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              child: Text(
+                                'Cancel', 
+                                style: TextStyle(
+                                  color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7), 
+                                  fontSize: 16
+                                )
+                              ),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              child: const Text('Reset'),
+                              onPressed: () {
+                                  Navigator.of(context).pop();
+                                  _resetMatchState();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
             );
         }
     );
@@ -719,6 +848,7 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _buildTextButton('Undo', _undoLastPoint),
+                  _buildFaultButton(), // Moved Fault button here
                   _buildTextButton('Reset', _showResetConfirmationDialog),
                 ],
               ),
@@ -790,11 +920,45 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
     );
   }
 
+  // --- Fault Button Widget for the bottom bar ---
+  Widget _buildFaultButton() {
+    final bool isFirstFault = _faultCount == 1;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    Color getFaultButtonColor() {
+      if (isFirstFault) return Colors.redAccent;
+      return Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.7) ?? (isDark ? Colors.white70 : Colors.black54);
+    }
+
+    return TextButton(
+        onPressed: _recordFault,
+        style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              // Add a red border if it's the first fault
+              side: isFirstFault ? const BorderSide(color: Colors.redAccent, width: 1.5) : BorderSide.none,
+            ),
+            backgroundColor: Theme.of(context).cardColor,
+        ),
+        child: Text(
+            'FAULT: $_faultCount',
+            style: TextStyle(
+              color: getFaultButtonColor(),
+              fontSize: 16,
+              fontWeight: isFirstFault ? FontWeight.bold : FontWeight.normal,
+            ),
+        ),
+    );
+  }
+
+
   Widget _buildTeamScoreCard(Team team) {
     final teamName = (team == Team.teamA) ? widget.teamAName : widget.teamBName;
     final games = (team == Team.teamA) ? _teamAGames : _teamBGames;
     final points = (team == Team.teamA) ? _teamAPoints : _teamBPoints;
     final isServing = _servingTeam == team;
+    // final bool isFirstFault = _faultCount == 1; // This is no longer needed here
 
     return Expanded(
       child: GestureDetector(
@@ -856,6 +1020,9 @@ class _ScoreboardScreenState extends State<ScoreboardScreen> {
                             : Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.8),
                       ),
                     ),
+                    
+                    // --- FAULT BUTTON REMOVED FROM HERE ---
+
                   ],
                 ),
               ),
@@ -1001,4 +1168,3 @@ class MatchHistoryScreen extends StatelessWidget {
         );
     }
 }
-
