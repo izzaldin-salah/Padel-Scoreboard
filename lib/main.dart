@@ -213,8 +213,8 @@ class MatchSetupScreen extends StatefulWidget {
 }
 
 class _MatchSetupScreenState extends State<MatchSetupScreen> {
-  final _teamAController = TextEditingController(text: 'Los Lobos');
-  final _teamBController = TextEditingController(text: 'Padel Masters');
+  final _teamAController = TextEditingController(text: 'Team A');
+  final _teamBController = TextEditingController(text: 'Team B');
   int _selectedBestOf = 3; // 3 or 5 for "Best of"
 
   @override
